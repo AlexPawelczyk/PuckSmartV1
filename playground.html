@@ -1,0 +1,1528 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+#buttons {
+    transform: translate(10px, 50px); 
+}
+#legendDiv {
+    transform: translate(1040px, -525px);
+}
+#controlboard {
+    transform: translate(750px, -730px);
+}
+#scoreboard {
+    transform: translate(1250px, -115px);
+}
+#scoreboard2 {
+    transform: translate(850px, -150px);
+}
+
+#shotMap {
+    transform: translate(0px, -810px);
+}
+
+#keyEvents {
+    transform: translate(1300px, -1260px);
+    background: "white";
+    height: 340px;
+    overflow-y: auto;
+    width: 450px;
+    border: 1px solid #000;
+    padding: 10px;
+}
+
+#keyEventsTitle {
+    transform: translate(1300px, -1250px);
+}
+
+#spmGraph {
+    transform: translate(0px, -1270px);
+}
+</style>
+<body>
+<script src="d3.v5.min.js"></script>
+<script src="https://ajax.aspnetcdn.com/ajax/jQuery/jquery-3.4.1.min.js"></script>
+<script>
+// load game data for March 9th, 2016 Pittsburgh vs. San Jose NHL game
+d3.json("hockeyJSON-PitVsSjs-Game5.json").then(function(data) 
+{
+    // Source: http://plnkr.co/edit/qNjaUD1ssXIcajqrlHv0?p=preview
+    var margin = {top: 20, right: 20, bottom: 30, left: 40},
+        width = 1260 - margin.left - margin.right,
+        height = 560 - margin.top - margin.bottom;
+
+    var x = d3.scaleLinear()
+        .range([0, width])
+        .domain([0, width]);
+
+    var y = d3.scaleLinear()
+        .range([height, 0])
+        .domain([height, 0]);
+
+    var spmX = d3.scaleLinear()
+        .domain([0, 3600])
+        .range([0, 1200]);
+    
+    var spmY = d3.scaleLinear()
+        .domain([0, 2])
+        .range([200, 0]);
+    
+    // var xAxis = d3.axisBottom(x);
+
+    // var yAxis = d3.axisLeft(y);
+    var xAxisTicks = d3.axisBottom(x);
+    var xAxisNoTicks = d3.axisBottom(x).ticks(0);
+    var yAxisTicks = d3.axisLeft(y);
+    var yAxisNoTicks = d3.axisLeft(y).ticks(0);
+
+    var spmX_Axis = d3.axisBottom(spmX);
+    
+    var spmY_Axis = d3.axisLeft(spmY);
+
+    // svg for shot map
+    var svg = d3.select("#shotMap").append("svg")
+        .attr("width", width + 250 + margin.left + margin.right) // +250 makes room for legend
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    
+    // svg for legend
+    var svgLegend = d3.select("#legendDiv").append("svg")
+        .attr("id", "legendSvg")
+        .attr("width", 300)
+        .attr("height", 200)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    
+    // svg for scoreboard
+    var svgScoreboard = d3.select("#scoreboard").append("svg")
+        .attr("id", "scoreboardSvg")
+        .attr("width", 600)
+        .attr("height", 400)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    // svg for controlboard
+    var svgControlboard = d3.select("#controlboard").append("svg")
+        .attr("id", "controlboardSvg")
+        .attr("width", 205)
+        .attr("height", 205)
+        .append("g");
+    
+    // svg for key events board
+    var svgKeyEvents = d3.select("#keyEvents").append("svg")
+        .attr("id", "keyEventsSvg")
+        .attr("width", 500)
+        .attr("height", 3000)
+        .append("g");
+    
+    // svg for shots per miute graph
+    var svgSpmGraph = d3.select("#spmGraph").append("svg")
+        .attr("id", "spmGraphSvg")
+        .attr("width", 1600)
+        .attr("height", 400)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");;
+        
+    /*************************************************************************
+     ********************** DATA PREPROCESSING *******************************
+     *************************************************************************/
+    var size = data.liveData.plays.allPlays.length;
+    var allPlays = data.liveData.plays.allPlays;
+    var scoringPlays = data.liveData.plays.scoringPlays;
+    var scoringPlaysIndex = 0;
+    var keyEventsArray = [];
+    var shotsArray = [];
+    for(var i = 0; i < allPlays.length; i++)
+    {
+        // these will be non-key events with value 'NULL' given to player and team names
+        if(Object.keys(allPlays[i]).length == 3) 
+        {
+            // do nothing
+        } 
+        // these will be key events that have player and team names
+        else if(allPlays[i].result.eventTypeId.toString().localeCompare("SHOT") == 0 ||
+                allPlays[i].result.eventTypeId.toString().localeCompare("HIT") == 0 ||
+                allPlays[i].result.eventTypeId.toString().localeCompare("PENALTY") == 0 ||
+                allPlays[i].result.eventTypeId.toString().localeCompare("GOAL") == 0)
+        {
+            // convert x and y coordinates from API format to traditional graphics x and y
+            var xCord = Math.abs(allPlays[i].coordinates.x + 100) * 6;
+            var yCord = (42.5 - allPlays[i].coordinates.y) * 6;
+
+            // create object for current key event
+            var keyEventObj = {
+                event_index: allPlays[i].about.eventIdx, 
+                event_typeID: allPlays[i].result.eventTypeId,
+                event_description: allPlays[i].result.description,
+                event_period: allPlays[i].about.period,
+                event_periodTime: allPlays[i].about.periodTime,
+                //event_periodTimeEu: allPlays[i].about.
+                event_periodTimeRemaining: allPlays[i].about.periodTimeRemaining,
+                event_xcord: xCord, 
+                event_ycord: yCord,
+                event_team: allPlays[i].team.name,
+                event_player: allPlays[i].players[0] 
+            };
+
+            if((keyEventObj.event_typeID.toString().localeCompare("SHOT") == 0) || 
+               (keyEventObj.event_typeID.toString().localeCompare("GOAL") == 0))
+            {
+                shotsArray.push(keyEventObj);
+            }
+            keyEventsArray.push(keyEventObj);
+        }  
+    }
+    console.log(keyEventsArray);
+    console.log(shotsArray);
+    // shots per minute
+    var shotIndex = 0;
+    var currShots = 0;
+    var currShotsHome = 0;
+    var currShotsAway = 0;
+    var currSpm = 0;
+    var currSpmHome = 0;
+    var currSpmAway = 0;
+    var spmArray = [];
+    var nextShotTime = convertTimeRemainingToSecsRemaining(shotsArray[0].event_periodTime) 
+                        + ((shotsArray[0].event_period - 1) * 1200);
+    for(var i = 1; i <= 3600; i++)
+    {
+        // if shot occurs at current second (multiple shots can happen in same second)
+        while(nextShotTime == i) 
+        {
+            currShots++;                            // increment shot counter
+
+            if(shotsArray[shotIndex].event_team.toString().localeCompare("Pittsburgh Penguins") == 0)
+            {
+                currShotsHome++;
+            }
+            else
+            {
+                currShotsAway++;
+            }
+
+            if(shotIndex == shotsArray.length - 1)  // if this is last shot, don,t incrememnt index
+            {
+                nextShotTime = 10000;               // set nextShotTime to number > 3600 
+            }
+            else    // if not last shot, incrememnt index, get next shot time,
+            {
+                shotIndex ++; 
+                nextShotTime = convertTimeRemainingToSecsRemaining(shotsArray[shotIndex].event_periodTime) 
+                                + ((shotsArray[shotIndex].event_period - 1) * 1200);
+            }
+        }
+        // append SPM object
+        currSpm = (currShots*60) / i;
+        currSpmHome = (currShotsHome*60) / i;
+        currSpmAway = (currShotsAway*60) / i;
+        var spmObj = {
+            spm_x : i/3,            // 
+            spm_y : currSpm * 100,   // y axis scale: 100px = 1.00spm
+            spm_homeY : currSpmHome * 100,
+            spm_awayY : currSpmAway * 100 
+        };
+        spmArray.push(spmObj);
+    }
+    console.log(spmArray);
+    console.log(currShots);
+
+    /**************************************************************************
+     ********************* START BUILDING THE HOCKEY RINK ********************* 
+     **************************************************************************/
+
+    // append x and y axis (also serves as border for the shot map)
+    svg.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + height + ")")
+        .call(xAxisNoTicks)   // bottom x-axis
+    
+    svg.append("g")
+        .attr("class", "x axis2")
+        .call(xAxisNoTicks) // top x-axis
+
+    svg.append("g")
+        .attr("class", "y axis")
+        .call(yAxisNoTicks)
+
+    svg.append("g")
+        .attr("class", "y axis2")
+        .attr("transform", "translate(" + width + ",0)")
+        .call(yAxisNoTicks)
+  
+    // data for lines needed to draw hockey rink
+    var jsonMinorLines = [
+        // left and right goal lines
+        { "x_axis1" : 66, "y_axis1" : 0, "x_axis2" : 66, "y_axis2" : 510, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1134, "y_axis1" : 0, "x_axis2" : 1134, "y_axis2" : 510, "stroke" : "red", "strokeWidth": 1 }, 
+        // dot lines for top-left circle
+        { "x_axis1" : 174, "y_axis1" : 118, "x_axis2" : 174, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 118, "x_axis2" : 151, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 128, "x_axis2" : 174, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 128, "x_axis2" : 151, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 118, "x_axis2" : 198, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 118, "x_axis2" : 221, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 128, "x_axis2" : 198, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 128, "x_axis2" : 221, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for top-left circle
+        { "x_axis1" : 168, "y_axis1" : 35, "x_axis2" : 168, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 35, "x_axis2" : 204, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 168, "y_axis1" : 211, "x_axis2" : 168, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 211, "x_axis2" : 204, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },    
+        // dot lines for bottom-left circle
+        { "x_axis1" : 174, "y_axis1" : 381, "x_axis2" : 174, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 381, "x_axis2" : 151, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 393, "x_axis2" : 174, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 393, "x_axis2" : 151, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 381, "x_axis2" : 198, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 381, "x_axis2" : 221, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 393, "x_axis2" : 198, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 393, "x_axis2" : 221, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for bottom-left circle
+        { "x_axis1" : 168, "y_axis1" : 299, "x_axis2" : 168, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 299, "x_axis2" : 204, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 168, "y_axis1" : 475, "x_axis2" : 168, "y_axis2" : 487, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 475, "x_axis2" : 204, "y_axis2" : 487, "stroke" : "red", "strokeWidth": 1 },
+        // dot lines for top-right circle
+        { "x_axis1" : 1002, "y_axis1" : 118, "x_axis2" : 1002, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 118, "x_axis2" : 979, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 128, "x_axis2" : 1002, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 128, "x_axis2" : 979, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 118, "x_axis2" : 1026, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 118, "x_axis2" : 1049, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 128, "x_axis2" : 1026, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 128, "x_axis2" : 1049, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for top-right circle
+        { "x_axis1" : 996, "y_axis1" : 35, "x_axis2" : 996, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 35, "x_axis2" : 1032, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 996, "y_axis1" : 211, "x_axis2" : 996, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 211, "x_axis2" : 1032, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },
+        // dot lines for bottom-right circle
+        { "x_axis1" : 1002, "y_axis1" : 381, "x_axis2" : 1002, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 381, "x_axis2" : 979, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 393, "x_axis2" : 1002, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 393, "x_axis2" : 979, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 381, "x_axis2" : 1026, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 381, "x_axis2" : 1049, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 393, "x_axis2" : 1026, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 393, "x_axis2" : 1049, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for bottom-right circle
+        { "x_axis1" : 996, "y_axis1" : 299, "x_axis2" : 996, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 299, "x_axis2" : 1032, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 996, "y_axis1" : 475, "x_axis2" : 996, "y_axis2" : 487, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 475, "x_axis2" : 1032, "y_axis2" : 487, "stroke" : "red", "strokeWidth": 1 },
+        // left & right nets
+        { "x_axis1" : 66, "y_axis1" : 237, "x_axis2" : 48, "y_axis2" : 237, "stroke" : "red", "strokeWidth": 1},
+        { "x_axis1" : 48, "y_axis1" : 237, "x_axis2" : 48, "y_axis2" : 273, "stroke" : "red", "strokeWidth": 1},
+        { "x_axis1" : 66, "y_axis1" : 273, "x_axis2" : 48, "y_axis2" : 273, "stroke" : "red", "strokeWidth": 1},
+        { "x_axis1" : 1134, "y_axis1" : 237, "x_axis2" : 1152, "y_axis2" : 237, "stroke" : "red", "strokeWidth": 1},
+        { "x_axis1" : 1152, "y_axis1" : 237, "x_axis2" : 1152, "y_axis2" : 273, "stroke" : "red", "strokeWidth": 1},
+        { "x_axis1" : 1134, "y_axis1" : 273, "x_axis2" : 1152, "y_axis2" : 273, "stroke" : "red", "strokeWidth": 1},
+        // left and right goal lines
+        { "x_axis1" : 66, "y_axis1" : 0, "x_axis2" : 66, "y_axis2" : 510, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1134, "y_axis1" : 0, "x_axis2" : 1134, "y_axis2" : 510, "stroke" : "red", "strokeWidth": 1 }, 
+        // dot lines for top-left circle
+        { "x_axis1" : 174, "y_axis1" : 118, "x_axis2" : 174, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 118, "x_axis2" : 151, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 128, "x_axis2" : 174, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 128, "x_axis2" : 151, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 118, "x_axis2" : 198, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 118, "x_axis2" : 221, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 128, "x_axis2" : 198, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 128, "x_axis2" : 221, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for top-left circle
+        { "x_axis1" : 168, "y_axis1" : 35, "x_axis2" : 168, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 35, "x_axis2" : 204, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 168, "y_axis1" : 211, "x_axis2" : 168, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 211, "x_axis2" : 204, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },    
+        // dot lines for bottom-left circle
+        { "x_axis1" : 174, "y_axis1" : 381, "x_axis2" : 174, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 381, "x_axis2" : 151, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 393, "x_axis2" : 174, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 174, "y_axis1" : 393, "x_axis2" : 151, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 381, "x_axis2" : 198, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 381, "x_axis2" : 221, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 393, "x_axis2" : 198, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 198, "y_axis1" : 393, "x_axis2" : 221, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for bottom-left circle
+        { "x_axis1" : 168, "y_axis1" : 299, "x_axis2" : 168, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 299, "x_axis2" : 204, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 168, "y_axis1" : 475, "x_axis2" : 168, "y_axis2" : 487, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 204, "y_axis1" : 475, "x_axis2" : 204, "y_axis2" : 487, "stroke" : "red", "strokeWidth": 1 },
+        // dot lines for top-right circle
+        { "x_axis1" : 1002, "y_axis1" : 118, "x_axis2" : 1002, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 118, "x_axis2" : 979, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 128, "x_axis2" : 1002, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 128, "x_axis2" : 979, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 118, "x_axis2" : 1026, "y_axis2" : 100, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 118, "x_axis2" : 1049, "y_axis2" : 118, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 128, "x_axis2" : 1026, "y_axis2" : 146, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 128, "x_axis2" : 1049, "y_axis2" : 128, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for top-right circle
+        { "x_axis1" : 996, "y_axis1" : 35, "x_axis2" : 996, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 35, "x_axis2" : 1032, "y_axis2" : 23, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 996, "y_axis1" : 211, "x_axis2" : 996, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 211, "x_axis2" : 1032, "y_axis2" : 223, "stroke" : "red", "strokeWidth": 1 },
+        // dot lines for bottom-right circle
+        { "x_axis1" : 1002, "y_axis1" : 381, "x_axis2" : 1002, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 381, "x_axis2" : 979, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 393, "x_axis2" : 1002, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1002, "y_axis1" : 393, "x_axis2" : 979, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 381, "x_axis2" : 1026, "y_axis2" : 363, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 381, "x_axis2" : 1049, "y_axis2" : 381, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 393, "x_axis2" : 1026, "y_axis2" : 411, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1026, "y_axis1" : 393, "x_axis2" : 1049, "y_axis2" : 393, "stroke" : "red", "strokeWidth": 1 },
+        // hashmarks for bottom-right circle
+        { "x_axis1" : 996, "y_axis1" : 299, "x_axis2" : 996, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis1" : 1032, "y_axis1" : 299, "x_axis2" : 1032, "y_axis2" : 287, "stroke" : "red", "strokeWidth": 1 },  
+    ]
+
+    // append lines needed to build shot map
+    var minorLines = svg.selectAll("line")
+        .data(jsonMinorLines)
+        .enter()
+        .append("line");
+
+    // record attributes for all lines needed to build shot map
+    var minorLineAttributes = minorLines
+        .attr("x1", function(d) {
+            //console.log(d.x_axis1);
+            return d.x_axis1;
+        })
+        .attr("y1", function(d) {
+            return d.y_axis1;
+        })
+        .attr("x2", function(d) {
+            return d.x_axis2;
+        })
+        .attr("y2", function(d) {
+            return d.y_axis2;
+        })
+        .attr("stroke", function(d) {
+            return d.stroke;
+        })
+        .attr("stroke-width", function(d) {
+            return d.strokeWidth;
+        });
+    
+    // data for rectangles needed to draw shot map
+    var jsonRectangles = [
+        //{ "x_axis" : 0, "y_axis" : 0, "width" : 1200, "height" : 510, "fill" : "white", "stroke" : "black", "strokeWidth": 3, "curve" : 108}, // border of rink
+        { "x_axis" : 447, "y_axis" : 0, "width" : 6, "height" : 510, "fill" : "blue", "stroke" : "none", "strokeWidth": 0, "curve" : 0}, // left blue line
+        { "x_axis" : 597, "y_axis" : 0, "width" : 6, "height" : 510, "fill" : "red", "stroke" : "none", "strokeWidth": 0, "curve" :0}, // center red line
+        { "x_axis" : 747, "y_axis" : 0, "width" : 6, "height" : 510, "fill" : "blue", "stroke" : "none", "strokeWidth": 0, "curve" : 0}, // right blue line
+        { "x_axis" : 66, "y_axis" : 231, "width" : 24, "height" : 48, "fill" : "blue", "stroke" : "red", "strokeWidth": 1, "curve" : 0}, // left crease
+        { "x_axis" : 1110, "y_axis" : 231, "width" : 24, "height" : 48, "fill" : "blue", "stroke" : "red", "strokeWidth": 1, "curve" : 0}, // right crease
+    ]
+    
+    // append rectangles needed to build shot map
+    var rectangles = svg.selectAll("rect")
+        .data(jsonRectangles)
+        .enter()
+        .append("rect");
+    
+    // record attributes for all rectangles needed to build shot map
+    var rectangleAttributes = rectangles
+        .attr("x", function(d) {
+            return d.x_axis;
+        })
+        .attr("y", function(d) {
+            return d.y_axis;
+        })
+        .attr("width", function(d) {
+            return d.width;
+        })
+        .attr("height", function(d) {
+            return d.height;
+        })
+        .attr("fill", function(d) {
+            return d.fill;
+        })
+        .attr("stroke", function(d) {
+            return d.stroke;
+        })
+        .attr("stroke-width", function(d) {
+            return d.strokeWidth;
+        })
+        .attr("rx", function(d) {
+            return d.curve;
+        });
+    
+    // data for circles needed to draw hockey rink
+    var jsonCircles = [
+        // center-ice circle
+        { "x_axis": 600, "y_axis": 255, "radius": 90, "color" : "white", "stroke" : "blue", "strokeWidth": 1 },
+        { "x_axis": 600, "y_axis": 255, "radius": 3, "color" : "blue", "stroke" : "black", "strokeWidth": 0 },
+        // top-left circle
+        { "x_axis": 186, "y_axis": 123, "radius": 90, "color" : "white", "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis": 186, "y_axis": 123, "radius": 6, "color" : "red", "stroke" : "black", "strokeWidth": 0 },
+        // bottom-left circle
+        { "x_axis": 186, "y_axis": 387, "radius": 90, "color" : "white", "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis": 186, "y_axis": 387, "radius": 6, "color" : "red", "stroke" : "black", "strokeWidth": 0 },
+        // top-right circle
+        { "x_axis": 1014, "y_axis": 123, "radius": 90, "color" : "white", "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis": 1014, "y_axis": 123, "radius": 6, "color" : "red", "stroke" : "black", "strokeWidth": 0 },
+        // bottom-right circle
+        { "x_axis": 1014, "y_axis": 387, "radius": 90, "color" : "white", "stroke" : "red", "strokeWidth": 1 },
+        { "x_axis": 1014, "y_axis": 387, "radius": 6, "color" : "red", "stroke" : "black", "strokeWidth": 0 }
+    ]
+        
+    // append circles
+    var circleObjs = svg.selectAll("circle")
+        .data(jsonCircles)
+        .enter()
+        .append("circle");
+    
+    // record attributes for all circles
+    var circleAttributes = circleObjs
+        .attr("cx", function(d) { 
+            return d.x_axis 
+        })
+        .attr("cy", function(d) {
+            return d.y_axis;
+        })
+        .attr("r", function(d) {
+            return d.radius;
+        })
+        .attr("fill", function(d) {
+            return d.color;
+        })
+        .attr("stroke", function(d) {
+            return d.stroke;
+        })
+        .attr("stroke-width", function(d) {
+            return d.strokeWidth;
+        });
+    // FINISHED BUILDING RINK
+
+    /**************************************************************************
+     ********************* START BUILDING THE LEGEND ************************** 
+     **************************************************************************/
+    // title of legend
+    svgLegend.append("text")
+        .attr("x", 5)
+        .attr("y", 17)
+        .attr("font-size", 20)
+        .text("LEGEND");
+    
+    // top border of legend
+    svgLegend.append("line")
+        .attr("x1", 0)
+        .attr("y1", 0)
+        .attr("x2", 160)
+        .attr("y2", 0)
+        .attr("stroke", "black");
+
+    // left border of legend
+    svgLegend.append("line")
+        .attr("x1", 0)
+        .attr("y1", 0)
+        .attr("x2", 0)
+        .attr("y2", 140)
+        .attr("stroke", "black");
+
+    // bottom border of legend
+    svgLegend.append("line")
+        .attr("x1", 0)
+        .attr("y1", 140)
+        .attr("x2", 160)
+        .attr("y2", 140)
+        .attr("stroke", "black");
+    
+    // right border of legend
+    svgLegend.append("line")
+        .attr("x1", 160)
+        .attr("y1", 0)
+        .attr("x2", 160)
+        .attr("y2", 140)
+        .attr("stroke", "black");
+    
+    // underlining title of legend
+    svgLegend.append("line")
+        .attr("x1", 0)
+        .attr("y1", 20)
+        .attr("x2", 160)
+        .attr("y2", 20)
+        .attr("stroke", "black");
+    
+    // seperating shapes and colors sections of legend
+    svgLegend.append("line")
+        .attr("x1", 0)
+        .attr("y1", 100)
+        .attr("x2", 160)
+        .attr("y2", 100)
+        .attr("stroke", "black");
+
+    svgLegend.append("circle")
+            .attr("class", "dot")
+            .attr("r", 5)
+            .attr("cx", 10)
+            .attr("cy", 30)
+            .style("fill", "white")
+            .style("stroke", "black");
+    
+    svgLegend.append("text")
+        .attr("x", 20)
+        .attr("y", 35)
+        .text("Shot");
+    
+    svgLegend.append("polygon")
+        .attr("points", function() { 
+            var pointStr = "";
+            pointStr += 10 + "," + (50 - 5) + " ";
+            pointStr += (10 + 5) + "," + 50 + " ";
+            pointStr += 10 + "," + (50 + 5) + " ";
+            pointStr += (10 - 5) + "," + 50;
+            return pointStr;
+        })
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    svgLegend.append("text")
+        .attr("x", 20)
+        .attr("y", 55)
+        .text("Goal");
+    
+    svgLegend.append("rect")
+        .attr("x", 5)
+        .attr("y", 65)
+        .attr("width", 10)
+        .attr("height", 10)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    svgLegend.append("text")
+        .attr("x", 20)
+        .attr("y", 75)
+        .text("Hit");
+    
+    svgLegend.append("polygon")
+        .attr("points", function(d) {
+            var pointStr = "";
+            pointStr += (10) + "," + (90-5) + " ";
+            pointStr += (10+5) + "," + (90+5) + " ";
+            pointStr += (10-5) + "," + (90+5) + " ";
+            return pointStr;
+            // var pointStr = "";
+            // pointStr += (10 + 2) + "," + (90 - 5) + " ";
+            // pointStr += (10 + 2) + "," + (90 - 2) + " ";
+            // pointStr += (10 + 5) + "," + (90 - 2) + " ";
+            // pointStr += (10 + 5) + "," + (90 + 2) + " ";
+
+            // pointStr += (10 + 2) + "," + (90 + 2) + " ";
+            // pointStr += (10 + 2) + "," + (90 + 5) + " ";
+            // pointStr += (10 - 2) + "," + (90 + 5) + " ";
+            // pointStr += (10 - 2) + "," + (90 + 2) + " ";
+
+            // pointStr += (10 - 5) + "," + (90 + 2) + " ";
+            // pointStr += (10 - 5) + "," + (90 - 2) + " ";
+            // pointStr += (10 - 2) + "," + (90 - 2) + " ";
+            // pointStr += (10 - 2) + "," + (90 - 5) + " ";
+            // return pointStr;
+        })
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    svgLegend.append("text")
+        .attr("x", 20)
+        .attr("y", 95)
+        .text("Penalty");
+    
+    svgLegend.append("circle")
+        .attr("class", "dot")
+        .attr("r", 5)
+        .attr("cx", 10)
+        .attr("cy", 110)
+        .style("fill", "orange")
+        .style("stroke", "orange")
+        .style("opacity", 0.5);
+    
+    svgLegend.append("text")
+        .attr("x", 20)
+        .attr("y", 115)
+        .text("Pittsburgh Penguins");
+    
+    svgLegend.append("circle")
+        .attr("class", "dot")
+        .attr("r", 5)
+        .attr("cx", 10)
+        .attr("cy", 130)
+        .style("fill", "silver")
+        .style("stroke", "silver")
+        .style("opacity", 0.5);
+    
+    svgLegend.append("text")
+        .attr("x", 20)
+        .attr("y", 135)
+        .text("San Jose Sharks");
+    // FINISHED BUILDING LEGEND
+
+    /**************************************************************************
+     ********************* START BUILDING THE CONTROLBOARD ********************
+     **************************************************************************/
+    svgControlboard.append("rect")
+        .attr("id", "controlboardFrame")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", 200)
+            .attr("height", 100)
+            .style("fill", "white")
+            .style("stroke", "black")
+            .style("stroke-width", 2);
+            
+    svgControlboard.append("text")
+        .attr("id", "controlboardTitleTxt")
+        .attr("x", 5)
+        .attr("y", 17)
+        .text("CONTROLS")
+        .attr("font-size", 20)
+    
+    svgControlboard.append("line")
+        .attr("id", "controlboardTitleUnderline")
+        .attr("x1", 0)
+        .attr("y1", 21)
+        .attr("x2", 200)
+        .attr("y2", 21)
+        .style("stroke", "black");
+    
+    /**************************************************************************
+     ********************* START BUILDING THE SCOREBOARD ********************** 
+     **************************************************************************/
+    
+    /* Start appending frames to scoreboard */
+    // outer frame of scoreboard (i.e. the scoreboard itself)
+    svgScoreboard.append("rect")
+            .attr("id", "scoreboardFrame")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", 500)
+            .attr("height", 250)
+            .style("fill", "white")
+            .style("stroke", "black");
+        
+    // frame for displaying time
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardTimeFrame")
+        .attr("x", 200)
+        .attr("y", 10)
+        .attr("width", 100)
+        .attr("height", 50)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying period
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardPeriodFrame")
+        .attr("x", 232)
+        .attr("y", 70)
+        .attr("width", 36)
+        .attr("height", 50)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying score of home team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardHomeScoreFrame")
+        .attr("x", 75)
+        .attr("y", 35)
+        .attr("width", 50)
+        .attr("height", 50)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying score of away team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardAwayScoreFrame")
+        .attr("x", 375)
+        .attr("y", 35)
+        .attr("width", 50)
+        .attr("height", 50)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying shots of home team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardHomeShotsFrame")
+        .attr("x", 85)
+        .attr("y", 105)
+        .attr("width", 30)
+        .attr("height", 30)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying shots of away team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardAwayShotsFrame")
+        .attr("x", 385)
+        .attr("y", 105)
+        .attr("width", 30)
+        .attr("height", 30)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying hits of home team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardHomeHitsFrame")
+        .attr("x", 85)
+        .attr("y", 155)
+        .attr("width", 30)
+        .attr("height", 30)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying hits of away team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardAwayHitsFrame")
+        .attr("x", 385)
+        .attr("y", 155)
+        .attr("width", 30)
+        .attr("height", 30)
+        .style("fill", "white")
+        .style("stroke", "black");
+
+    // frame for displaying penalies of home team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardHomePenaltiesFrame")
+        .attr("x", 85)
+        .attr("y", 205)
+        .attr("width", 30)
+        .attr("height", 30)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    // frame for displaying penalties of away team
+    svgScoreboard.append("rect")
+        .attr("id", "scoreboardAwayPenaltiesFrame")
+        .attr("x", 385)
+        .attr("y", 205)
+        .attr("width", 30)
+        .attr("height", 30)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    /* Start appending text to scoreboard */
+    // time remaining in the period
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardTimeTxt")
+        .attr("x", 205)
+        .attr("y", 50)
+        .text("20:00")
+        .style("font-size", 40);
+
+    // label for current period
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardPeriodLabelTxt")
+        .attr("x", 234)
+        .attr("y", 135)
+        .text("Period")
+        .style("font-size", 12);
+
+    // label for home team name
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomeTeamNameTxt")
+        .attr("x", 55)
+        .attr("y", 25)
+        .text("Pittsburgh")
+        .style("font-size", 25);
+    
+    // label for away team name
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayTeamNameTxt")
+        .attr("x", 360)
+        .attr("y", 25)
+        .text("San Jose")
+        .style("font-size", 25);
+    
+    // number for current period
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardPeriodNumTxt")
+        .attr("x", 242)
+        .attr("y", 110)
+        .text("1")
+        .style("font-size", 40);
+
+    // number for home score
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomeScoreNumTxt")
+        .attr("x", 90)
+        .attr("y", 73)
+        .text("0")
+        .style("font-size", 40);
+    
+    // number for away score
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayScoreNumTxt")
+        .attr("x", 390)
+        .attr("y", 73)
+        .text("0")
+        .style("font-size", 40);
+    
+    // number for home shots
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomeShotsNumTxt")
+        .attr("x", 95)
+        .attr("y", 125)
+        .text("0")
+        .style("font-size", 20);
+    
+    // number for away shots
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayShotsNumTxt")
+        .attr("x", 395)
+        .attr("y", 125)
+        .text("0")
+        .style("font-size", 20);
+    
+    // number for home hits
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomeHitsNumTxt")
+        .attr("x", 95)
+        .attr("y", 175)
+        .text("0")
+        .style("font-size", 20);
+    
+    // number for away hits
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayHitsNumTxt")
+        .attr("x", 395)
+        .attr("y", 175)
+        .text("0")
+        .style("font-size", 20);
+    
+    // number for home penalties
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomePenaltiesNumTxt")
+        .attr("x", 95)
+        .attr("y", 225)
+        .text("0")
+        .style("font-size", 20);
+    
+    // number for away penalties
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayPenaltiesNumTxt")
+        .attr("x", 395)
+        .attr("y", 225)
+        .text("0")
+        .style("font-size", 20);
+
+    // label for home shots
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomeShotsLabelTxt")
+        .attr("x", 136)
+        .attr("y", 125)
+        .text("Shots on Goal")
+        .style("font-size", 12);
+
+    // label for away shots
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayShotsLabelTxt")
+        .attr("x", 295)
+        .attr("y", 125)
+        .text("Shots on Goal")
+        .style("font-size", 12);
+
+    // label for home hits
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomeHitsLabelTxt")
+        .attr("x", 161)
+        .attr("y", 175)
+        .text("Hits")
+        .style("font-size", 12);
+
+    // label for away hits
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayHitsLabelTxt")
+        .attr("x", 320)
+        .attr("y", 175)
+        .text("Hits")
+        .style("font-size", 12);
+
+    // label for home penalties
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardHomePenaltiesLabelTxt")
+        .attr("x", 149)
+        .attr("y", 225)
+        .text("Penalties")
+        .style("font-size", 12);
+
+    // label for away penalties
+    svgScoreboard.append("text")
+        .attr("id", "scoreboardAwayPenaltiesLabelTxt")
+        .attr("x", 309)
+        .attr("y", 225)
+        .text("Penalties")
+        .style("font-size", 12);
+/*
+    // guideline for shots on goal text
+    svgScoreboard.append("line")
+        .attr("x1", 205)
+        .attr("y1", 120)
+        .attr("x2", 295)
+        .attr("y2", 120)
+        .style("stroke", "red");
+
+    // guideline for hits text
+    svgScoreboard.append("line")
+        .attr("x1", 180)
+        .attr("y1", 160)
+        .attr("x2", 320)
+        .attr("y2", 160)
+        .style("stroke", "red");
+
+    // guideline for penalties text
+    svgScoreboard.append("line")
+        .attr("x1", 193)
+        .attr("y1", 225)
+        .attr("x2", 307)
+        .attr("y2", 225)
+        .style("stroke", "red");
+*/
+
+    /**************************************************************************
+     **************** START BUILDING THE KEY EVENTS BOARD ********************* 
+     **************************************************************************/
+    
+    // // title of key events board
+    // svgKeyEvents.append("text")
+    //     .attr("id", "keyEventsTitleTxt")
+    //     .attr("x", 10)
+    //     .attr("y", 30)
+    //     .text("KEY EVENT DESCRIPTIONS")
+    //     .style("font-size", 30);
+
+    // // underlining title of key events board
+    // svgKeyEvents.append("line")
+    //         .attr("x1", 5)
+    //         .attr("y1", 35)
+    //         .attr("x2", 405)
+    //         .attr("y2", 35)
+    //         .style("stroke", "black");
+    
+    /**************************************************************************
+     **************** START BUILDING SHOTS PER MINUTE GRAPH ******************* 
+     **************************************************************************/
+
+    // append x and y axis (also serves as border for the shot map)
+    svgSpmGraph.append("g")
+        .attr("class", "spm x axis")
+        .attr("transform", "translate(0," + 200 + ")")
+        .call(spmX_Axis);
+    
+    svgSpmGraph.append("g")
+        .attr("class", "spm y axis")
+        .call(spmY_Axis);
+    
+    // y-axis label of spm graph
+    svgSpmGraph.append("text")
+        .attr("id", "spmGraphYaxis")
+        .attr("x", -25)
+        .attr("y", -10)
+        .text("SPM")
+        .style("font-size", 14)
+        .style("font-weight", "bold");
+    
+    svgSpmGraph.append("text")
+        .attr("id", "spmGraphXaxis")
+        .attr("x", 1100)
+        .attr("y", 240)
+        .text("Time of Game (s)")
+        .style("font-size", 14)
+        .style("font-weight", "bold");
+
+    svgSpmGraph.append("rect")
+        .attr("id", "spmLegendFrame")
+        .attr("x", 1265)
+        .attr("y", 0)
+        .attr("width", 200)
+        .attr("height", 130)
+        .style("fill", "white")
+        .style("stroke", "black");
+    
+    svgSpmGraph.append("text")
+        .attr("id", "spmLegendTitle")
+        .attr("x", 1270)
+        .attr("y", 20)
+        .text("SPM LEGEND")
+        .style("font-size", 20)
+        .style("font-weight", "bold");
+    
+    // underlining title of key events board
+    svgSpmGraph.append("line")
+        .attr("x1", 1265)
+        .attr("y1", 25)
+        .attr("x2", 1465)
+        .attr("y2", 25)
+        .style("stroke", "black");
+    
+    svgSpmGraph.append("line")
+        .attr("x1", 1270)
+        .attr("y1", 45)
+        .attr("x2", 1285)
+        .attr("y2", 45)
+        .style("stroke", "red")
+        .style("stroke-width", 3);
+    
+    svgSpmGraph.append("text")
+        .attr("x", 1290)
+        .attr("y", 50)
+        .text("Total SPM")
+        .style("font-size", 14);
+    
+    svgSpmGraph.append("line")
+        .attr("x1", 1270)
+        .attr("y1", 75)
+        .attr("x2", 1285)
+        .attr("y2", 75)
+        .style("stroke", "orange")
+        .style("stroke-width", 3);
+    
+    svgSpmGraph.append("text")
+        .attr("x", 1290)
+        .attr("y", 80)
+        .text("Pittsburgh SPM")
+        .style("font-size", 14);
+    
+    svgSpmGraph.append("line")
+        .attr("x1", 1270)
+        .attr("y1", 105)
+        .attr("x2", 1285)
+        .attr("y2", 105)
+        .style("stroke", "silver")
+        .style("stroke-width", 3);
+    
+    svgSpmGraph.append("text")
+        .attr("x", 1290)
+        .attr("y", 110)
+        .text("San Jose SPM")
+        .style("font-size", 14);
+    
+
+    
+    
+    /**************************************************************************
+     *************** START ADDING SIMULATION FUNCTIONALITY ******************** 
+     **************************************************************************/
+
+    // add onclick event for start button
+    d3.select("#startButton").on("click", function(){
+        // 1000 => 1 second in sim =  1 second in real life; 10 => 1 second in sim = 0.01 second in real life
+        var myTimer = setInterval(myClock, 10);
+
+        var timeRemaining = "20:00";
+        var previousPeriod = 0;
+        // 60 minute hockey game => 3600 seconds
+        //var c = 1200;
+
+        // tracks what event we are currently at
+        var currIndex = 0;
+        var eventYpos = 10; // for adding text description of events
+        var firstTime = true; // for scrolling
+
+        // tracks previous coordinates for spm graph
+        var prevX = 0;
+        var prevY = 200 - 0;
+        var prevYhome = 200 - 0;
+        var prevYaway = 200 - 0;
+        var currIteration = 1;
+
+        /* 
+        * DEFINE myClock FUNCTION
+        * Purpose: Decrement the clock and add events
+        * Source: https://stackoverflow.com/questions/40638402/javascript-countdown-timer-with-start-stop-buttons
+        */
+        function myClock() 
+        {            
+            // convert time remaining (mm:ss) to secs remaining
+            var secsRemaining = convertTimeRemainingToSecsRemaining(timeRemaining);
+
+            // decrement 1 second off the clock
+            secsRemaining--;
+
+            while(secsRemaining == 160) { }
+
+            // convert secs remaining to time remaining (mm:ss)
+            timeRemaining = convertSecsRemainingToTimeRemaining(secsRemaining);
+
+            // update scoreboard on browser with new time
+            document.getElementById("scoreboardTimeTxt").innerHTML = timeRemaining;
+
+
+
+            // update spm graph every 3 seconds
+            if(currIteration % 3 == 0) {
+                console.log("appending line");
+                svgSpmGraph.append("line")
+                    .attr("x1", prevX)
+                    .attr("y1", prevY)
+                    .attr("x2", spmArray[currIteration-1].spm_x)
+                    .attr("y2", 200 - spmArray[currIteration-1].spm_y)
+                    .attr("stroke", "red");
+                
+                svgSpmGraph.append("line")
+                    .attr("x1", prevX)
+                    .attr("y1", prevYhome)
+                    .attr("x2", spmArray[currIteration-1].spm_x)
+                    .attr("y2", 200 - spmArray[currIteration-1].spm_homeY)
+                    .attr("stroke", "orange");
+                
+                svgSpmGraph.append("line")
+                    .attr("x1", prevX)
+                    .attr("y1", prevYaway)
+                    .attr("x2", spmArray[currIteration-1].spm_x)
+                    .attr("y2", 200 - spmArray[currIteration-1].spm_awayY)
+                    .attr("stroke", "silver");
+            
+                prevX = spmArray[currIteration-1].spm_x;
+                prevY = 200 - spmArray[currIteration-1].spm_y;
+                prevYhome = 200 - spmArray[currIteration-1].spm_homeY;
+                prevYaway = 200 - spmArray[currIteration-1].spm_awayY;
+            }
+            currIteration++;
+            
+
+            //variable declarations for current time, id, team, period, x, and y
+            var currTimeStr = keyEventsArray[currIndex].event_periodTime;
+            var currEventId = keyEventsArray[currIndex].event_typeID;
+            var currEventTeam = keyEventsArray[currIndex].event_team;
+            var currPeriodNum = keyEventsArray[currIndex].event_period;
+            var currX = keyEventsArray[currIndex].event_xcord;
+            var currY = keyEventsArray[currIndex].event_ycord;
+            var currEventDescript = currPeriodNum + " - " + timeRemaining + " - " + keyEventsArray[currIndex].event_description;
+            var currEventDescriptToolTip = keyEventsArray[currIndex].event_description;
+
+            // convert event time to seconds (i.e. period 2, time 1:00 => event time of 1260 seconds)
+            var currTimeIntSeconds = convertTimeRemainingToSecsRemaining(currTimeStr);
+
+            // update period number at end of each period (except for after third period)
+            if((secsRemaining == 0 && currIndex != keyEventsArray.length - 1))
+            {
+                var curr = parseInt(document.getElementById("scoreboardPeriodNumTxt").innerHTML);
+                previousPeriod = curr;
+                curr++;
+                document.getElementById("scoreboardPeriodNumTxt").innerHTML = curr;
+                timeRemaining = "20:00";
+            }
+            // if the clock runs out, make alert for end of game
+            else if ((secsRemaining == 0 && currIndex == keyEventsArray.length - 1))
+            {
+                clearInterval(myTimer);
+                alert("End of Game");
+            }
+
+            // if time on clock equals time of current event 
+            while(secsRemaining == (1200 - currTimeIntSeconds)) 
+            {
+
+                // update key event board with current event description
+                svgKeyEvents.append("text")
+                    .attr("id", "keyEvent" + (currIndex + 1))
+                    .attr("x", 5)
+                    .attr("y", eventYpos)
+                    .text(currEventDescript)
+                    .style("font-size", 12);
+
+                // start scrolling down after 35th event
+                if(currIndex >= 16)
+                {
+                    var $foo = $("#keyEvents");
+                    $foo.scrollTop($foo.scrollTop() + 20); // scroll 20px down from current
+                }
+                
+                // if current event is a shot
+                if(currEventId.toString().localeCompare("SHOT") == 0)
+                {
+                    // append a circle to the shot map
+                    svg.append("circle")
+                        .attr("r", 4)
+                        .attr("cx", currX)
+                        .attr("cy", currY)
+                        .style("fill", function() {
+                            // if event is initiated by home team
+                            if(currEventTeam.toString().localeCompare("Pittsburgh Penguins") == 0)
+                            {
+                                // increment shot counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardHomeShotsNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardHomeShotsNumTxt").innerHTML = curr;
+                                // return appropriate color for home team
+                                return "orange";
+                            }
+                            // if event is initiated by away team
+                            else
+                            {
+                                // increment shot counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardAwayShotsNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardAwayShotsNumTxt").innerHTML = curr;
+                                // return appropriate color for away team
+                                return "silver";
+                            }
+                        })
+                        .style("stroke", "black")
+                        .style("opacity", 0.5)
+                        // Here we add an SVG title element the contents of which is effectively rendered in a tooltip   
+                        .append("svg:title")
+                        .text(function() { 
+                            return  "Event: " + currEventId +
+                                    "\nPeriod: " + currPeriodNum +  
+                                    "\nTime: " + currTimeStr +
+                                    "\nDescription: " + currEventDescriptToolTip;
+                        });
+                    
+                }
+                // if current event is a goal
+                else if(currEventId.toString().localeCompare("GOAL") == 0)
+                {
+                    // append a diamond to the shot map
+                    svg.append("polygon")
+                        .attr("points", function(d) { 
+                            var pointStr = "";
+                            pointStr += currX + "," + (currY - 4) + " ";
+                            pointStr += (currX + 4) + "," + currY + " ";
+                            pointStr += currX + "," + (currY + 4) + " ";
+                            pointStr += (currX - 4) + "," + currY;
+                            return pointStr;
+                        })
+                        .style("fill", function(){
+                            // if event is initiated by home team
+                            if(currEventTeam.toString().localeCompare("Pittsburgh Penguins") == 0)
+                            {
+                                // increment goal counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardHomeScoreNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardHomeScoreNumTxt").innerHTML = curr;
+                                // increment shot counter on scoreboard
+                                var curr2 = parseInt(document.getElementById("scoreboardHomeShotsNumTxt").innerHTML);
+                                curr2++;
+                                document.getElementById("scoreboardHomeShotsNumTxt").innerHTML = curr2;
+                                // return appropriate color for home team
+                                return "orange";
+                            }
+                            // if event is initiated by away team
+                            else
+                            {
+                                // increment goal counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardAwayScoreNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardAwayScoreNumTxt").innerHTML = curr;
+                                // increment shot counter on scoreboard
+                                var curr2 = parseInt(document.getElementById("scoreboardAwayShotsNumTxt").innerHTML);
+                                curr2++;
+                                document.getElementById("scoreboardAwayShotsNumTxt").innerHTML = curr2;
+                                // return appropriate color for away team
+                                return "silver";
+                            }
+                        })
+                        .style("stroke", "black")
+                        .style("opacity", 0.5)
+                        // Here we add an SVG title element the contents of which is effectively rendered in a tooltip   
+                        .append("svg:title")
+                        .text(function() { 
+                            return  "Event: " + currEventId +
+                                    "\nPeriod: " + currPeriodNum +  
+                                    "\nTime: " + currTimeStr +
+                                    "\nDescription: " + currEventDescriptToolTip;
+                        });
+                }
+                // if current event is a hit
+                else if(currEventId.toString().localeCompare("HIT") == 0)
+                {
+                    svg.append("rect")
+                        .attr("class", "sqr")
+                        .attr("x", currX - 4)
+                        .attr("y", currY - 4)
+                        .attr("width", 8)
+                        .attr("height", 8)
+                        .style("fill", function() {
+                            // if event is initiated by home team
+                            if(currEventTeam.toString().localeCompare("Pittsburgh Penguins") == 0)
+                            {
+                                // increment hit counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardHomeHitsNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardHomeHitsNumTxt").innerHTML = curr;
+                                // return appropriate color for home team
+                                return "orange";  
+                            }
+                            // if event is initiated by away team
+                            else
+                            {
+                                // increment hit counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardAwayHitsNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardAwayHitsNumTxt").innerHTML = curr;
+                                // return appropriate color for away team
+                                return "silver";
+                            }
+                        })
+                        .style("stroke", "black")
+                        .style("opacity", 0.5)
+                        // Here we add an SVG title element the contents of which is effectively rendered in a tooltip   
+                        .append("svg:title")
+                        .text(function() { 
+                            return  "Event: " + currEventId +
+                                    "\nPeriod: " + currPeriodNum +  
+                                    "\nTime: " + currTimeStr +
+                                    "\nDescription: " + currEventDescriptToolTip;
+                        }); 
+                }
+                // if current event is a penalty
+                else
+                {
+                    // append a cross to the shot map
+                    svg.append("polygon")
+                        .attr("points", function() {
+                            var pointStr = "";
+                            pointStr += (currX) + "," + (currY - 4) + " ";
+                            pointStr += (currX + 4) + "," + (currY + 4) + " ";
+                            pointStr += (currX - 4) + "," + (currY + 4) + " ";
+                            return pointStr; 
+                        })
+                        .style("fill", function(d) {
+                            // if event is initiated by home team
+                            if(currEventTeam.toString().localeCompare("Pittsburgh Penguins") == 0)
+                            {
+                                // increment penalty counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardHomePenaltiesNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardHomePenaltiesNumTxt").innerHTML = curr;
+                                // return appropriate color for home team
+                                return "orange";
+                            }
+                            // if event is initiated by away team
+                            else
+                            {
+                                // increment penalty counter on scoreboard
+                                var curr = parseInt(document.getElementById("scoreboardAwayPenaltiesNumTxt").innerHTML);
+                                curr++;
+                                document.getElementById("scoreboardAwayPenaltiesNumTxt").innerHTML = curr;
+                                // return appropriate color for away team
+                                return "silver";
+                            }
+                        })
+                        .style("stroke", "black")
+                        .style("opacity", 0.5)
+                        // Here we add an SVG title element the contents of which is effectively rendered in a tooltip   
+                        .append("svg:title")
+                        .text(function() { 
+                            return  "Event: " + currEventId +
+                                    "\nPeriod: " + currPeriodNum +  
+                                    "\nTime: " + currTimeStr +
+                                    "\nDescription: " + currEventDescriptToolTip;
+                        });
+                }
+                // break if current event is the last event
+                if(currIndex == keyEventsArray.length - 1) { 
+                    break;
+                }
+                // if more events exist, get next index, time, period, eventID, team, x, and y
+                else {
+                    currIndex++;
+                    eventYpos+= 20;
+                    currTimeStr = keyEventsArray[currIndex].event_periodTime;
+                    currTimeIntSeconds = convertTimeRemainingToSecsRemaining(currTimeStr);
+                    currPeriodNum = keyEventsArray[currIndex].event_period;
+                    currEventId = keyEventsArray[currIndex].event_typeID;
+                    currEventTeam = keyEventsArray[currIndex].event_team;
+                    currX = keyEventsArray[currIndex].event_xcord;
+                    currY = keyEventsArray[currIndex].event_xcord;
+                    currEventDescript = currPeriodNum + " - " + timeRemaining + " - " + keyEventsArray[currIndex].event_description;
+                    currEventDescriptToolTip = keyEventsArray[currIndex].event_description;
+                }
+                // condition in while loop will still be true if new currEvent has same time as prevEvent   
+            }
+            // new currEvent has different time than prevEvent, go back to top of myClock function  
+        }
+
+        
+    })
+    /*******************************************************************************
+        ******************** FUNCTION DEFINITIONS **************************************
+        ********************************************************************************/
+
+        /* 
+         * Purpose: Convert time from current event (mm:ss) into second at which event occured at in the period
+         * e.g., event time = 00:11  ==>  11th second of the period (returns 11)
+         * e.g., event time = 10:00  ==>  600th second of the period (returns 600) 
+         */
+         function convertTimeRemainingToSecsRemaining(currTimeStr)
+        {
+            var currMinuteStr = "";
+            var currSecondsStr = "";
+            var reachedSemiColon = false;
+            for(var i = 0; i < currTimeStr.length; i++)
+            {
+                if(!reachedSemiColon && currTimeStr.charAt(i) != ':') {
+                    currMinuteStr += currTimeStr.charAt(i);
+                } else if(!reachedSemiColon && currTimeStr.charAt(i) == ':') {
+                    reachedSemiColon = true;
+                } else {
+                    currSecondsStr += currTimeStr.charAt(i);
+                }
+            }
+
+            var currMinuteInt = parseInt(currMinuteStr);
+            var currSecondsInt = parseInt(currSecondsStr);
+            var currTimeIntSeconds = (currMinuteInt * 60) + currSecondsInt;
+            return currTimeIntSeconds;
+        }
+
+        /* 
+         * Purpose: Convert second of current event into mm:ss
+         *          e.g., event time = 11s   ==>  00:11 left in period (returns 00:11)
+         *          e.g., event time = 600s  ==>  10:00 left in period (returns 10:00)
+         */
+        function convertSecsRemainingToTimeRemaining(currSecsRemaining)
+        {
+            var minutes = Math.floor(currSecsRemaining / 60);
+            var seconds = currSecsRemaining % 60;
+            var timeRemaining = "";
+            if(minutes < 10 && seconds < 10)
+            {
+                timeRemaining += "0" + minutes + ":0" + seconds;
+            }
+            else if(minutes < 10 && seconds >= 10)
+            {
+                timeRemaining += "0" + minutes + ":" + seconds;
+            }
+            else if(minutes >= 10 && seconds < 10)
+            {
+                timeRemaining += minutes + ":0" + seconds;
+            }
+            else if(minutes >= 10 && seconds >= 10)
+            {
+                timeRemaining += minutes + ":" + seconds;
+            }
+            return timeRemaining;
+        }
+});
+</script>
+
+<h1>PuckSmart Simulation View</h1>
+<h2>June 9th, 2016 - Pittsburgh Penguins vs. San Jose Sharks</h2>
+
+<div id="scoreboard"></div>
+<div id="legendDiv"></div>
+<div id="controlboard">
+    <div id="buttons">
+        <button id="startButton">Start Game</button>
+        <button id="stopButton" onclick="clearInterval(myTimer)">Stop Game</button>
+    </div>
+</div>
+
+<div id="shotMap"></div>
+
+<div id="keyEventsTitle">
+    <h2> Key Event Descriptions</h2>
+</div>
+
+<div id="keyEvents">
+    
+</div>
+
+<div id="spmGraph">
+    <h2>Shots Per Minute (SPM)</h2>
+</div>
+
+</body>
