@@ -1139,8 +1139,6 @@ d3.json("hockeyJSON-PitVsSjs-Game5.json").then(function(data)
             // decrement 1 second off the clock
             secsRemaining--;
 
-            while(secsRemaining == 160) { }
-
             // convert secs remaining to time remaining (mm:ss)
             timeRemaining = convertSecsRemainingToTimeRemaining(secsRemaining);
 
@@ -1501,6 +1499,8 @@ d3.json("hockeyJSON-PitVsSjs-Game5.json").then(function(data)
 
 <h1>PuckSmart Simulation View</h1>
 <h2>June 9th, 2016 - Pittsburgh Penguins vs. San Jose Sharks</h2>
+
+<a href="index.html" id="link-shotmap">Go to the shot map view</a>
 
 <div id="scoreboard"></div>
 <div id="legendDiv"></div>
